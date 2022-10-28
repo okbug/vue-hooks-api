@@ -1,12 +1,25 @@
 import { getCurrentInstance, watchEffect } from "vue";
 
+type CurrentRenderingFiber =ICurrentlyRenderingFiber | null
+
+interface ICurrentlyRenderingFiber {
+  alternate?: CurrentRenderingFiber;
+  update?: () => void;
+  memorizedState?: CurrentRenderingFiber 
+  uid?: number;
+  next?: CurrentRenderingFiber;
+  hookFlags?: number;
+  create?: any;
+  deps?: any
+}
+
 // useLayoutEffect 的标记
 const HookLayout = /*    */ 0b010;
 // useEffect 的标记
 const HookPassive = /*   */ 0b100;
 
 // 当前的渲染的 Fiber 节点，对应 Vue 中则是当前渲染的组件函数的实例
-let currentlyRenderingFiber: any = null;
+let currentlyRenderingFiber: CurrentRenderingFiber = null;
 // 当前正在工作的 Hook 节点
 let workInProgressHook: any = null;
 // 前一个 Hook
@@ -14,21 +27,27 @@ let currentHook: any = null;
 
 // React 中启动一个 Fiber 协调的任务
 function scheduleUpdateOnFiber(wip: any) {
+  if (!currentlyRenderingFiber) {
+    return
+  }
   // 保存老 Fiber
   currentlyRenderingFiber.alternate = { ...currentlyRenderingFiber };
   renderHooks(wip);
-  currentlyRenderingFiber.update();
+  currentlyRenderingFiber!.update!();
 }
 
 // 初始化 Hooks 的相关设置
 function renderHooks(wip: any) {
-  currentlyRenderingFiber = wip;
+  currentlyRenderingFiber = wip as ICurrentlyRenderingFiber;
   currentlyRenderingFiber.memorizedState = null;
   workInProgressHook = null;
 }
 
 // Hooks 设置
 function updateWorkInProgressHook() {
+  if (!currentlyRenderingFiber) {
+    return null
+  }
   const instance = getCurrentInstance() as any;
   if (
     !currentlyRenderingFiber ||
@@ -38,7 +57,7 @@ function updateWorkInProgressHook() {
   }
   // alternate 是老 Fiber 的属性 
   const current = currentlyRenderingFiber.alternate;
-  let hook;
+  let hook: CurrentRenderingFiber = null;
   // 存在老的则是更新节点
   if (current) {
     currentlyRenderingFiber.memorizedState = current.memorizedState;
@@ -48,7 +67,7 @@ function updateWorkInProgressHook() {
       currentHook = currentHook.next;
     } else {
       // 头节点
-      hook = workInProgressHook = current.memorizedState;
+      hook = workInProgressHook = current.memorizedState!;
       currentHook = current.memorizedState;
     }
   } else {
@@ -71,16 +90,18 @@ function updateWorkInProgressHook() {
   return hook;
 }
 
-export function useState(initalState: any) {
-  return useReducer(null, initalState);
+export function useState(initialState: any) {
+  return useReducer(null, initialState);
 }
 
-export function useReducer(reducer: any, initalState: any) {
+export function useReducer(reducer: any, initialState: any) {
   // 获取 Hook
   const hook = updateWorkInProgressHook();
-
-  if (!currentlyRenderingFiber.alternate) {
-    hook.memorizedState = initalState;
+  if (!hook) {
+    return [];
+  }
+  if (!currentlyRenderingFiber || !currentlyRenderingFiber.alternate) {
+    hook.memorizedState = initialState;
   }
   // 通过 bind 方法进行缓存当前的组件函数的 Fiber 节点，Vue3 中则是函数组件的实例对象
   const dispatch = dispatchReducerAction.bind(
@@ -104,7 +125,7 @@ function dispatchReducerAction(
   scheduleUpdateOnFiber(fiber);
 }
 
-function updateEffectImp(hookFlags: any, create: any, deps: any) {
+function updateEffectImp(hookFlags: number, create: any, deps: any) {
   // 获取 Hook
   const hook = updateWorkInProgressHook();
   // 如果存在老 Hook 则进行对比
@@ -118,7 +139,7 @@ function updateEffectImp(hookFlags: any, create: any, deps: any) {
     }
   }
   const effect = { hookFlags, create, deps };
-  hook.memorizedState = effect;
+  hook!.memorizedState = effect;
 
   invokeHooks(hookFlags, hook);
 }
@@ -147,7 +168,7 @@ function areHookInputsEqual(nextDeps: any, prevDeps: any) {
 }
 
 // 调用 Hooks
-function invokeHooks(hookFlags: any, hook: any) {
+function invokeHooks(hookFlags: number, hook: any) {
   if (hookFlags & HookPassive) {
     postMessage(hook.memorizedState.create);
   } else if (hookFlags & HookLayout) {
